@@ -1,14 +1,13 @@
 import os
 import json
 import asyncio
-import subprocess
 import urllib.request
 import urllib.parse
 import websockets
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Pro Edition")
+app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Ultra Fast")
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,78 +17,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# আপনার Xiaozhi MCP WebSocket Endpoint URL
-XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjEzNDUxMywiZXhwIjoxODIzNjkyMTEzfQ.ZD3ndBqAPg5EMnmZ5CptHfOjS2rTTPlG-pBANnDKkQHa9o6EBKYrdvC3byMuodHQpLk_5eEaKJQ44mgPyl1A9A"
+XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOjJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjEzNDUxMywiZXhwIjoxODIzNjkyMTEzfQ.ZD3ndBqAPg5EMnmZ5CptHfOjS2rTTPlG-pBANnDKkQHa9o6EBKYrdvC3byMuodHQpLk_5eEaKJQ44mgPyl1A9A"
 
-# yt-dlp অটো আপডেট ফাংশন
-def update_yt_dlp():
-    try:
-        subprocess.run(["python", "-m", "pip", "install", "--upgrade", "yt-dlp"], check=True)
-        print("yt-dlp updated successfully!")
-    except Exception as e:
-        print(f"Failed to auto-update yt-dlp: {e}")
+# ইনভিডিয়াস ও অন্যান্য নির্ভরযোগ্য পাবলিক ইনস্ট্যান্স তালিকা
+INVIDIOUS_INSTANCES = [
+    "https://inv.riverside.rocks",
+    "https://invidious.nerdvpn.de",
+    "https://vid.puppethead.one",
+    "https://invidious.flokinet.to"
+]
 
-# অল্টারনেটিভ ফলব্যাক মেথড: Piped API দিয়ে অডিও লিংক বের করা (যাতে Render আইপি ব্লক না খায়)
-def get_audio_from_fallback_api(song_name: str) -> str:
-    try:
-        encoded_query = urllib.parse.quote(song_name)
-        search_url = f"https://pipedapi.kavin.rocks/search?q={encoded_query}&filter=videos"
-        
-        req = urllib.request.Request(
-            search_url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            items = data.get("items", [])
-            if items:
-                # প্রথম ভিডিওর আইডি নেওয়া
-                video_id = items[0].get("url", "").split("=")[-1]
-                if video_id:
-                    # স্ট্রিম এপিআই থেকে সরাসরি অডিও লিংক ফেচ করা
-                    stream_url = f"https://pipedapi.kavin.rocks/streams/{video_id}"
-                    req_stream = urllib.request.Request(
-                        stream_url, 
-                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-                    )
-                    with urllib.request.urlopen(req_stream, timeout=5) as stream_resp:
-                        stream_data = json.loads(stream_resp.read().decode())
-                        audio_streams = stream_data.get("audioStreams", [])
-                        if audio_streams:
-                            # সেরা অডিও ইউআরএল রিটার্ন করা
-                            direct_url = audio_streams[0].get("url", "")
-                            print(f"Successfully Fetched via Fallback API: {direct_url}")
-                            return direct_url
-    except Exception as e:
-        print(f"Fallback API error: {e}")
+def get_youtube_audio_url(song_name: str) -> str:
+    encoded_query = urllib.parse.quote(song_name)
+    
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            # ১. গান দিয়ে ইউটিউব ভিডিও আইডি সার্চ করা
+            search_url = f"{instance}/api/v1/search?q={encoded_query}&type=video"
+            req = urllib.request.Request(
+                search_url,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            )
+            with urllib.request.urlopen(req, timeout=4) as response:
+                search_data = json.loads(response.read().decode())
+                if search_data and len(search_data) > 0:
+                    video_id = search_data[0].get("videoId")
+                    if video_id:
+                        # ২. ভিডিওর মেটাডাটা থেকে ডাইরেক্ট অডিও স্ট্রিম লিংক বের করা
+                        video_url = f"{instance}/api/v1/videos/{video_id}"
+                        req_video = urllib.request.Request(
+                            video_url,
+                            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                        )
+                        with urllib.request.urlopen(req_video, timeout=4) as vid_resp:
+                            vid_data = json.loads(vid_resp.read().decode())
+                            adaptive_formats = vid_data.get("adaptiveFormats", [])
+                            # সরাসরি অডিও ফরমেট নির্বাচন
+                            audio_streams = [f for f in adaptive_formats if f.get("type", "").startswith("audio/")]
+                            if audio_streams:
+                                # সেরা বিটরেটের অডিও লিংক নির্বাচন
+                                audio_streams.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
+                                direct_audio_url = audio_streams[0].get("url")
+                                print(f"Successfully fetched audio from {instance}: {direct_audio_url}")
+                                return direct_audio_url
+        except Exception as e:
+            print(f"Error fetching from instance {instance}: {e}")
+            continue
+
+    print("All extraction methods failed.")
     return ""
 
-# ইউটিউব থেকে নিখুঁতভাবে অডিও স্ট্রিম ইউআরএল বের করার মূল ফাংশন (ডুয়েল প্রটেকশন সহ)
-def get_youtube_audio_url(song_name: str) -> str:
-    # প্রথমে yt-dlp দিয়ে চেষ্টা করা যাক
-    try:
-        cmd = [
-            "yt-dlp",
-            f"ytsearch1:{song_name}",
-            "--get-url",
-            "--no-check-certificates",
-            "--extractor-args", "youtube:player_client=android",
-            "-f", "bestaudio/best",
-            "--no-playlist"
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
-        url = result.stdout.strip().split('\n')[0]
-        if url and url.startswith("http"):
-            print(f"Successfully Fetched via yt-dlp: {url}")
-            return url
-    except Exception as e:
-        print(f"yt-dlp primary method failed: {e}. Switching to Fallback API...")
-
-    # yt-dlp ফেইল করলে স্বয়ংক্রিয়ভাবে ফলব্যাক API কাজ করবে
-    return get_audio_from_fallback_api(song_name)
-
-# Xiaozhi MCP WebSocket Client Task
 async def xiaozhi_mcp_client():
     while True:
         try:
@@ -97,7 +74,6 @@ async def xiaozhi_mcp_client():
             async with websockets.connect(XIAOZHI_MCP_WS_URL) as ws:
                 print("Connected to Xiaozhi MCP Endpoint!")
                 
-                # মেসেজ রিসিভ এবং প্রসেস লুপ
                 async for message in ws:
                     data = json.loads(message)
                     print("Received from Xiaozhi:", data)
@@ -105,7 +81,6 @@ async def xiaozhi_mcp_client():
                     req_id = data.get("id")
                     method = data.get("method")
 
-                    # ১. Initialize হ্যান্ডশেক
                     if method == "initialize":
                         response = {
                             "jsonrpc": "2.0",
@@ -117,13 +92,12 @@ async def xiaozhi_mcp_client():
                                 },
                                 "serverInfo": {
                                     "name": "xiaozhi-youtube-mcp",
-                                    "version": "2.0.0"
+                                    "version": "3.0.0"
                                 }
                             }
                         }
                         await ws.send(json.dumps(response))
 
-                    # ২. Ping হ্যান্ডশেক
                     elif method == "ping":
                         response = {
                             "jsonrpc": "2.0",
@@ -132,7 +106,6 @@ async def xiaozhi_mcp_client():
                         }
                         await ws.send(json.dumps(response))
 
-                    # ৩. Tools List রিকোয়েস্ট হ্যান্ডেল করা
                     elif method == "tools/list":
                         response = {
                             "jsonrpc": "2.0",
@@ -158,7 +131,6 @@ async def xiaozhi_mcp_client():
                         }
                         await ws.send(json.dumps(response))
 
-                    # ৪. Tool Call (গান বাজানোর কমান্ড)
                     elif method == "tools/call":
                         params = data.get("params", {})
                         tool_name = params.get("name")
@@ -192,15 +164,12 @@ async def xiaozhi_mcp_client():
 
 @app.on_event("startup")
 async def startup_event():
-    update_yt_dlp()
-    # ব্যাকগ্রাউন্ডে WebSocket ক্লায়েন্ট চালু করা
     asyncio.create_task(xiaozhi_mcp_client())
 
 @app.get("/")
 def home():
-    return {"status": "Xiaozhi YouTube Audio MCP Server Pro is running"}
+    return {"status": "Xiaozhi YouTube Audio MCP Server Ultra Fast is running"}
 
-# ম্যানুয়াল টেস্টের জন্য HTTP endpoint
 @app.get("/api/get-audio-url")
 def get_audio_url(song_name: str = Query(..., description="Song name to search")):
     url = get_youtube_audio_url(song_name)
