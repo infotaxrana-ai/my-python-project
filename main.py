@@ -16,10 +16,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Apnar Xiaozhi MCP WebSocket Endpoint URL
+# আপনার Xiaozhi MCP WebSocket Endpoint URL
 XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjEzNDUxMywiZXhwIjoxODIzNjkyMTEzfQ.ZD3ndBqAPg5EMnmZ5CptHfOjS2rTTPlG-pBANnDKkQHa9o6EBKYrdvC3byMuodHQpLk_5eEaKJQ44mgPyl1A9A"
 
-# yt-dlp oto update function
+# yt-dlp অটো আপডেট ফাংশন
 def update_yt_dlp():
     try:
         subprocess.run(["python", "-m", "pip", "install", "--upgrade", "yt-dlp"], check=True)
@@ -27,18 +27,21 @@ def update_yt_dlp():
     except Exception as e:
         print(f"Failed to auto-update yt-dlp: {e}")
 
-# YouTube theke audio stream URL ber korar function
+# ইউটিউব থেকে নিখুঁতভাবে অডিও স্ট্রিম ইউআরএল বের করার আপডেট করা ফাংশন
 def get_youtube_audio_url(song_name: str) -> str:
     try:
         cmd = [
             "yt-dlp",
-            f"ytsearch1:{song_name}",
-            "--format", "bestaudio/best",
+            f"ytsearch1:{song_name} audio",
             "--get-url",
+            "--no-check-certificates",
+            "--default-search", "ytsearch",
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
             "--no-playlist"
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        url = result.stdout.strip()
+        url = result.stdout.strip().split('\n')[0]
+        print(f"Successfully Fetched Audio URL: {url}")
         return url
     except Exception as e:
         print(f"yt-dlp error: {e}")
@@ -52,7 +55,7 @@ async def xiaozhi_mcp_client():
             async with websockets.connect(XIAOZHI_MCP_WS_URL) as ws:
                 print("Connected to Xiaozhi MCP Endpoint!")
                 
-                # Message receive and process loop
+                # মেসেজ রিসিভ এবং প্রসেস লুপ
                 async for message in ws:
                     data = json.loads(message)
                     print("Received from Xiaozhi:", data)
@@ -60,7 +63,7 @@ async def xiaozhi_mcp_client():
                     req_id = data.get("id")
                     method = data.get("method")
 
-                    # 1. Initialize Handshake Handle
+                    # ১. Initialize হ্যান্ডশেক
                     if method == "initialize":
                         response = {
                             "jsonrpc": "2.0",
@@ -78,7 +81,7 @@ async def xiaozhi_mcp_client():
                         }
                         await ws.send(json.dumps(response))
 
-                    # 2. Ping Pong Handle
+                    # ২. Ping হ্যান্ডশেক
                     elif method == "ping":
                         response = {
                             "jsonrpc": "2.0",
@@ -87,7 +90,7 @@ async def xiaozhi_mcp_client():
                         }
                         await ws.send(json.dumps(response))
 
-                    # 3. Tools List Request Handle
+                    # ৩. Tools List রিকোয়েস্ট হ্যান্ডেল করা
                     elif method == "tools/list":
                         response = {
                             "jsonrpc": "2.0",
@@ -113,7 +116,7 @@ async def xiaozhi_mcp_client():
                         }
                         await ws.send(json.dumps(response))
 
-                    # 4. Tool Call (Gan baajar command)
+                    # ৪. Tool Call (গান বাজানোর কমান্ড)
                     elif method == "tools/call":
                         params = data.get("params", {})
                         tool_name = params.get("name")
@@ -148,14 +151,14 @@ async def xiaozhi_mcp_client():
 @app.on_event("startup")
 async def startup_event():
     update_yt_dlp()
-    # Background e WebSocket client chalu kora
+    # ব্যাকগ্রাউন্ডে WebSocket ক্লায়েন্ট চালু করা
     asyncio.create_task(xiaozhi_mcp_client())
 
 @app.get("/")
 def home():
     return {"status": "Xiaozhi MCP Server is running"}
 
-# Manual test er jonno HTTP endpoint
+# ম্যানুয়াল টেস্টের জন্য HTTP endpoint
 @app.get("/api/get-audio-url")
 def get_audio_url(song_name: str = Query(..., description="Song name to search")):
     url = get_youtube_audio_url(song_name)
