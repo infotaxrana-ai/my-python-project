@@ -1,12 +1,13 @@
 import os
 import json
 import asyncio
+import urllib.parse
 import httpx
 import websockets
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Async HTTPX")
+app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Final Production")
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,25 +17,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjE0NjY0MywiZXhwIjoxODIzNzA0MjQzfQ.DwOM4BAiKESN5cDNkBgcsi1Gt7ODecVYq845dUtG7tCtPY88_KUJ9co70AuAsozu7szCGyXESYjgj_om5_ig0Q"
-
-# নির্ভরযোগ্য এপিআই ক্লাস্টার
-SEARCH_APIS = [
-    "https://api.piped.privacydev.net",
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.tokhmi.xyz"
-]
+XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOjJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjE0NTE3MywiZXhwIjoxODIzNzAyNzczfQ.aTyC69_Edssdtzus-lyAGjFwfRDD55_9hQUu0t9oxo-TjU7e5TA_DHHXm3DnnGUuF8ek6A5hs2OGUSoDD19Z1A"
 
 async def get_youtube_audio_url(song_name: str) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers) as client:
-        # ১. Piped API ক্লাস্টার দিয়ে অডিও খোঁজা
-        for base_url in SEARCH_APIS:
+    # SSL ভেরিফিকেশন ডিসেবল করে ক্লায়েন্ট তৈরি (সার্টিফিকেট এরর এড়াতে)
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers, verify=False) as client:
+        # স্ট্যাবল ও সচল API ইনস্ট্যান্স তালিকা
+        search_apis = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.leptons.xyz",
+            "https://piped.video/api/v1"
+        ]
+        
+        encoded_song = urllib.parse.quote(song_name)
+        
+        for base_url in search_apis:
             try:
-                search_url = f"{base_url}/search?q={httpx.URL(song_name).raw_path.decode()}&filter=videos"
+                search_url = f"{base_url}/search?q={encoded_song}&filter=videos"
                 resp = await client.get(search_url)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -55,22 +58,6 @@ async def get_youtube_audio_url(song_name: str) -> str:
             except Exception as e:
                 print(f"Error connecting to {base_url}: {e}")
                 continue
-
-        # ২. ব্যাকআপ Cobalt API চেষ্টা
-        try:
-            cobalt_payload = {
-                "url": f"https://www.youtube.com/watch?v=search?q={song_name}",
-                "downloadMode": "audio"
-            }
-            c_resp = await client.post("https://api.cobalt.tools/api/json", json=cobalt_payload)
-            if c_resp.status_code == 200:
-                c_data = c_resp.json()
-                url = c_data.get("url")
-                if url:
-                    print(f"Successfully fetched audio via Cobalt: {url}")
-                    return url
-        except Exception as e:
-            print(f"Cobalt backup failed: {e}")
 
     print("All audio extraction attempts failed.")
     return ""
@@ -96,7 +83,7 @@ async def xiaozhi_mcp_client():
                             "result": {
                                 "protocolVersion": "2024-11-05",
                                 "capabilities": {"tools": {}},
-                                "serverInfo": {"name": "xiaozhi-youtube-mcp", "version": "6.0.0"}
+                                "serverInfo": {"name": "xiaozhi-youtube-mcp", "version": "7.0.0"}
                             }
                         }
                         await ws.send(json.dumps(response))
@@ -167,7 +154,7 @@ async def startup_event():
 
 @app.get("/")
 def home():
-    return {"status": "Xiaozhi Async Server is running"}
+    return {"status": "Xiaozhi MCP Server is running cleanly"}
 
 @app.get("/api/get-audio-url")
 async def get_audio_url(song_name: str = Query(..., description="Song name to search")):
