@@ -7,7 +7,7 @@ import websockets
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Final Production")
+app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Multi Fallback")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,18 +24,50 @@ async def get_youtube_audio_url(song_name: str) -> str:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # SSL ভেরিফিকেশন ডিসেবল করে ক্লায়েন্ট তৈরি (সার্টিফিকেট এরর এড়াতে)
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers, verify=False) as client:
-        # স্ট্যাবল ও সচল API ইনস্ট্যান্স তালিকা
-        search_apis = [
-            "https://pipedapi.kavin.rocks",
-            "https://pipedapi.leptons.xyz",
-            "https://piped.video/api/v1"
+    encoded_song = urllib.parse.quote(song_name)
+    
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers, verify=False) as client:
+        
+        # 1. Invidious Active Instances
+        invidious_instances = [
+            "https://invidious.nerdvpn.de",
+            "https://inv.tux.pizza",
+            "https://invidious.projectsegfau.lt",
+            "https://invidious.privacydev.net"
         ]
         
-        encoded_song = urllib.parse.quote(song_name)
+        for instance in invidious_instances:
+            try:
+                search_url = f"{instance}/api/v1/search?q={encoded_song}&type=video"
+                resp = await client.get(search_url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        video_id = data[0].get("videoId")
+                        if video_id:
+                            video_resp = await client.get(f"{instance}/api/v1/videos/{video_id}")
+                            if video_resp.status_code == 200:
+                                v_data = video_resp.json()
+                                adaptive_formats = v_data.get("adaptiveFormats", [])
+                                audio_streams = [f for f in adaptive_formats if f.get("type", "").startswith("audio/")]
+                                if audio_streams:
+                                    audio_streams.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
+                                    direct_url = audio_streams[0].get("url")
+                                    if direct_url:
+                                        print(f"Successfully fetched audio from Invidious ({instance}): {direct_url}")
+                                        return direct_url
+            except Exception as e:
+                print(f"Invidious instance error ({instance}): {e}")
+                continue
+
+        # 2. Piped Active Instances
+        piped_instances = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.leptons.xyz",
+            "https://api.piped.privacydev.net"
+        ]
         
-        for base_url in search_apis:
+        for base_url in piped_instances:
             try:
                 search_url = f"{base_url}/search?q={encoded_song}&filter=videos"
                 resp = await client.get(search_url)
@@ -53,13 +85,14 @@ async def get_youtube_audio_url(song_name: str) -> str:
                                 audio_streams = stream_data.get("audioStreams", [])
                                 if audio_streams:
                                     direct_url = audio_streams[0].get("url", "")
-                                    print(f"Successfully fetched audio from {base_url}: {direct_url}")
-                                    return direct_url
+                                    if direct_url:
+                                        print(f"Successfully fetched audio from Piped ({base_url}): {direct_url}")
+                                        return direct_url
             except Exception as e:
-                print(f"Error connecting to {base_url}: {e}")
+                print(f"Piped instance error ({base_url}): {e}")
                 continue
 
-    print("All audio extraction attempts failed.")
+    print("All extraction attempts failed.")
     return ""
 
 async def xiaozhi_mcp_client():
@@ -83,7 +116,7 @@ async def xiaozhi_mcp_client():
                             "result": {
                                 "protocolVersion": "2024-11-05",
                                 "capabilities": {"tools": {}},
-                                "serverInfo": {"name": "xiaozhi-youtube-mcp", "version": "7.0.0"}
+                                "serverInfo": {"name": "xiaozhi-youtube-mcp", "version": "8.0.0"}
                             }
                         }
                         await ws.send(json.dumps(response))
@@ -154,7 +187,7 @@ async def startup_event():
 
 @app.get("/")
 def home():
-    return {"status": "Xiaozhi MCP Server is running cleanly"}
+    return {"status": "Server running with multi-instance fallback"}
 
 @app.get("/api/get-audio-url")
 async def get_audio_url(song_name: str = Query(..., description="Song name to search")):
