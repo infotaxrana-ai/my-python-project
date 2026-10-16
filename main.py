@@ -7,7 +7,7 @@ import websockets
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Multi Fallback")
+app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Direct Stream")
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,82 +17,66 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjE0NjUzMCwiZXhwIjoxODIzNzA0MTMwfQ.Yr3F5jKJAQwhVE6O4ZtwYHdavTHT1cbWig9Bar2ZWh92TOo32061S-NVUT16NEQc1taT_jIS_eJEi84GjZMUDA"
+XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjE0ODgwNiwiZXhwIjoxODIzNzA2NDA2fQ.xOjGHWuoBf6XWU6GtI-E5zqOuSORi0J4MRtS6EzIgQYX1vsoYA4IjfF2cX7WaVKA9vfprjRhkhcpgsXtfxeaaQ"
 
 async def get_youtube_audio_url(song_name: str) -> str:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
     
     encoded_song = urllib.parse.quote(song_name)
     
-    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers, verify=False) as client:
-        
-        # 1. Invidious Active Instances
-        invidious_instances = [
-            "https://invidious.nerdvpn.de",
-            "https://inv.tux.pizza",
-            "https://invidious.projectsegfau.lt",
-            "https://invidious.privacydev.net"
-        ]
-        
-        for instance in invidious_instances:
-            try:
-                search_url = f"{instance}/api/v1/search?q={encoded_song}&type=video"
-                resp = await client.get(search_url)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list) and len(data) > 0:
-                        video_id = data[0].get("videoId")
-                        if video_id:
-                            video_resp = await client.get(f"{instance}/api/v1/videos/{video_id}")
-                            if video_resp.status_code == 200:
-                                v_data = video_resp.json()
-                                adaptive_formats = v_data.get("adaptiveFormats", [])
-                                audio_streams = [f for f in adaptive_formats if f.get("type", "").startswith("audio/")]
-                                if audio_streams:
-                                    audio_streams.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
-                                    direct_url = audio_streams[0].get("url")
-                                    if direct_url:
-                                        print(f"Successfully fetched audio from Invidious ({instance}): {direct_url}")
-                                        return direct_url
-            except Exception as e:
-                print(f"Invidious instance error ({instance}): {e}")
-                continue
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers, verify=False) as client:
+        # অত্যন্ত নির্ভরযোগ্য ব্যাকআপ পাবলিক এপিআই (Cobalt & InnerTube Direct Search)
+        try:
+            # ইউটিউব থেকে সরাসরি মিউজিক পেড রিকোয়েস্টের বিকল্প হিসেবে ইনোভেটিভ সার্চ API
+            search_endpoint = f"https://vid.priv.au/api/v1/search?q={encoded_song}&type=video"
+            resp = await client.get(search_endpoint)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    video_id = data[0].get("videoId")
+                    if video_id:
+                        # সরাসরি কোবাল্ট এপিআইতে পাঠিয়ে অডিও লিংক ফেচ করা
+                        cobalt_payload = {
+                            "url": f"https://www.youtube.com/watch?v={video_id}",
+                            "downloadMode": "audio",
+                            "audioFormat": "mp3"
+                        }
+                        c_resp = await client.post("https://api.cobalt.tools/api/json", json=cobalt_payload)
+                        if c_resp.status_code == 200:
+                            c_data = c_resp.json()
+                            direct_url = c_data.get("url")
+                            if direct_url:
+                                print(f"Successfully fetched audio via Cobalt: {direct_url}")
+                                return direct_url
+        except Exception as e:
+            print(f"Primary fetch error: {e}")
 
-        # 2. Piped Active Instances
-        piped_instances = [
-            "https://pipedapi.kavin.rocks",
-            "https://pipedapi.leptons.xyz",
-            "https://api.piped.privacydev.net"
-        ]
-        
-        for base_url in piped_instances:
-            try:
-                search_url = f"{base_url}/search?q={encoded_song}&filter=videos"
-                resp = await client.get(search_url)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    items = data.get("items", [])
-                    if items:
-                        video_url_path = items[0].get("url", "")
-                        video_id = video_url_path.split("=")[-1] if "=" in video_url_path else ""
-                        
-                        if video_id:
-                            stream_resp = await client.get(f"{base_url}/streams/{video_id}")
-                            if stream_resp.status_code == 200:
-                                stream_data = stream_resp.json()
-                                audio_streams = stream_data.get("audioStreams", [])
-                                if audio_streams:
-                                    direct_url = audio_streams[0].get("url", "")
-                                    if direct_url:
-                                        print(f"Successfully fetched audio from Piped ({base_url}): {direct_url}")
-                                        return direct_url
-            except Exception as e:
-                print(f"Piped instance error ({base_url}): {e}")
-                continue
+        # ফলব্যাক হিসেবে আরেকটি বিশ্বস্ত ইনস্ট্যান্স
+        try:
+            fallback_url = f"https://invidious.projectsegfau.lt/api/v1/search?q={encoded_song}&type=video"
+            resp = await client.get(fallback_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    video_id = data[0].get("videoId")
+                    if video_id:
+                        stream_res = await client.get(f"https://invidious.projectsegfau.lt/api/v1/videos/{video_id}")
+                        if stream_res.status_code == 200:
+                            v_data = stream_res.json()
+                            formats = v_data.get("adaptiveFormats", [])
+                            audio_streams = [f for f in formats if f.get("type", "").startswith("audio/")]
+                            if audio_streams:
+                                audio_streams.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
+                                direct_url = audio_streams[0].get("url")
+                                if direct_url:
+                                    print(f"Successfully fetched from fallback Invidious: {direct_url}")
+                                    return direct_url
+        except Exception as e:
+            print(f"Fallback fetch error: {e}")
 
-    print("All extraction attempts failed.")
+    print("All audio extraction attempts failed.")
     return ""
 
 async def xiaozhi_mcp_client():
@@ -116,7 +100,7 @@ async def xiaozhi_mcp_client():
                             "result": {
                                 "protocolVersion": "2024-11-05",
                                 "capabilities": {"tools": {}},
-                                "serverInfo": {"name": "xiaozhi-youtube-mcp", "version": "8.0.0"}
+                                "serverInfo": {"name": "xiaozhi-youtube-mcp", "version": "9.0.0"}
                             }
                         }
                         await ws.send(json.dumps(response))
@@ -187,7 +171,7 @@ async def startup_event():
 
 @app.get("/")
 def home():
-    return {"status": "Server running with multi-instance fallback"}
+    return {"status": "Direct Stream Server running"}
 
 @app.get("/api/get-audio-url")
 async def get_audio_url(song_name: str = Query(..., description="Song name to search")):
