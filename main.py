@@ -2,11 +2,13 @@ import os
 import json
 import asyncio
 import subprocess
+import urllib.request
+import urllib.parse
 import websockets
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Xiaozhi YouTube Audio MCP Server")
+app = FastAPI(title="Xiaozhi YouTube Audio MCP Server - Pro Edition")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,25 +29,65 @@ def update_yt_dlp():
     except Exception as e:
         print(f"Failed to auto-update yt-dlp: {e}")
 
-# ইউটিউব থেকে নিখুঁতভাবে অডিও স্ট্রিম ইউআরএল বের করার আপডেট করা ফাংশন
+# অল্টারনেটিভ ফলব্যাক মেথড: Piped API দিয়ে অডিও লিংক বের করা (যাতে Render আইপি ব্লক না খায়)
+def get_audio_from_fallback_api(song_name: str) -> str:
+    try:
+        encoded_query = urllib.parse.quote(song_name)
+        search_url = f"https://pipedapi.kavin.rocks/search?q={encoded_query}&filter=videos"
+        
+        req = urllib.request.Request(
+            search_url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            items = data.get("items", [])
+            if items:
+                # প্রথম ভিডিওর আইডি নেওয়া
+                video_id = items[0].get("url", "").split("=")[-1]
+                if video_id:
+                    # স্ট্রিম এপিআই থেকে সরাসরি অডিও লিংক ফেচ করা
+                    stream_url = f"https://pipedapi.kavin.rocks/streams/{video_id}"
+                    req_stream = urllib.request.Request(
+                        stream_url, 
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                    )
+                    with urllib.request.urlopen(req_stream, timeout=5) as stream_resp:
+                        stream_data = json.loads(stream_resp.read().decode())
+                        audio_streams = stream_data.get("audioStreams", [])
+                        if audio_streams:
+                            # সেরা অডিও ইউআরএল রিটার্ন করা
+                            direct_url = audio_streams[0].get("url", "")
+                            print(f"Successfully Fetched via Fallback API: {direct_url}")
+                            return direct_url
+    except Exception as e:
+        print(f"Fallback API error: {e}")
+    return ""
+
+# ইউটিউব থেকে নিখুঁতভাবে অডিও স্ট্রিম ইউআরএল বের করার মূল ফাংশন (ডুয়েল প্রটেকশন সহ)
 def get_youtube_audio_url(song_name: str) -> str:
+    # প্রথমে yt-dlp দিয়ে চেষ্টা করা যাক
     try:
         cmd = [
             "yt-dlp",
-            f"ytsearch1:{song_name} audio",
+            f"ytsearch1:{song_name}",
             "--get-url",
             "--no-check-certificates",
-            "--default-search", "ytsearch",
-            "-f", "bestaudio[ext=m4a]/bestaudio/best",
+            "--extractor-args", "youtube:player_client=android",
+            "-f", "bestaudio/best",
             "--no-playlist"
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
         url = result.stdout.strip().split('\n')[0]
-        print(f"Successfully Fetched Audio URL: {url}")
-        return url
+        if url and url.startswith("http"):
+            print(f"Successfully Fetched via yt-dlp: {url}")
+            return url
     except Exception as e:
-        print(f"yt-dlp error: {e}")
-        return ""
+        print(f"yt-dlp primary method failed: {e}. Switching to Fallback API...")
+
+    # yt-dlp ফেইল করলে স্বয়ংক্রিয়ভাবে ফলব্যাক API কাজ করবে
+    return get_audio_from_fallback_api(song_name)
 
 # Xiaozhi MCP WebSocket Client Task
 async def xiaozhi_mcp_client():
@@ -75,7 +117,7 @@ async def xiaozhi_mcp_client():
                                 },
                                 "serverInfo": {
                                     "name": "xiaozhi-youtube-mcp",
-                                    "version": "1.0.0"
+                                    "version": "2.0.0"
                                 }
                             }
                         }
@@ -156,7 +198,7 @@ async def startup_event():
 
 @app.get("/")
 def home():
-    return {"status": "Xiaozhi MCP Server is running"}
+    return {"status": "Xiaozhi YouTube Audio MCP Server Pro is running"}
 
 # ম্যানুয়াল টেস্টের জন্য HTTP endpoint
 @app.get("/api/get-audio-url")
