@@ -17,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SWQiOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjE0ODgwNiwiZXhwIjoxODIzNzA2NDA2fQ.xOjGHWuoBf6XWU6GtI-E5zqOuSORi0J4MRtS6EzIgQYX1vsoYA4IjfF2cX7WaVKA9vfprjRhkhcpgsXtfxeaaQ"
+XIAOZHI_MCP_WS_URL = "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEwMzIwNzcsImFnZW50SOjI0OTc5NTgsImVuZHBvaW50SWQiOiJhZ2VudF8yNDk3OTU4IiwicHVycG9zZSI6Im1jcC1lbmRwb2ludCIsImlhdCI6MTc5MjE0ODgwNiwiZXhwIjoxODIzNzA2NDA2fQ.xOjGHWuoBf6XWU6GtI-E5zqOuSORi0J4MRtS6EzIgQYX1vsoYA4IjfF2cX7WaVKA9vfprjRhkhcpgsXtfxeaaQ"
 
 async def get_youtube_audio_url(song_name: str) -> str:
     headers = {
